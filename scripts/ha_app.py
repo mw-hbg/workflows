@@ -62,6 +62,9 @@ SENSITIVE = (
     "gpio",
     "kernel_modules",
 )
+# Home Assistant shows only README.md (app store) and DOCS.md (Documentation
+# tab), so every language lives in these two files as a section of its own.
+LANGUAGE_SECTIONS = ("## English", "## Deutsch")
 IMAGE = re.compile(r"ghcr\.io/[a-z0-9-]+/\{arch\}-app-[a-z0-9-]+")
 
 
@@ -102,6 +105,15 @@ def check(root: Path, app: str, allowed: frozenset[str] = frozenset()) -> list[s
     for name in REQUIRED_FILES:
         if not (folder / name).exists():
             problems.append(f"{app}/{name} is missing")
+    for name in ("README.md", "DOCS.md"):
+        path = folder / name
+        if path.exists():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for heading in LANGUAGE_SECTIONS:
+                if heading not in lines:
+                    problems.append(f"{app}/{name}: section '{heading}' is missing (all languages in one file)")
+    for extra in sorted([*folder.glob("README.*.md"), *folder.glob("DOCS.*.md")]):
+        problems.append(f"{app}/{extra.name}: Home Assistant never shows it – move it into a section of {extra.name.split('.')[0]}.md")
     cfg = load(root, app)
     if cfg.get("slug") != app:
         problems.append(f"{app}/config.yaml: slug must be the folder name '{app}'")

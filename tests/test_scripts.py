@@ -27,6 +27,8 @@ def make_app(root: Path, config: str = CONFIG) -> Path:
     (app / "translations").mkdir(parents=True)
     for name in ha_app.REQUIRED_FILES:
         (app / name).write_text("x")
+    for name in ("README.md", "DOCS.md"):
+        (app / name).write_text("# Demo\n\n## English\n\nHi\n\n## Deutsch\n\nHallo\n")
     (app / "config.yaml").write_text(config)
     return app
 
@@ -48,6 +50,15 @@ def test_missing_files_and_second_app(tmp_path):
     problems = "\n".join(ha_app.check(tmp_path, "demo"))
     assert "apparmor.txt is missing" in problems
     assert "one app per repository" in problems
+
+
+def test_readme_and_docs_hold_both_languages(tmp_path):
+    app = make_app(tmp_path)
+    (app / "DOCS.md").write_text("# Demo\n\n## English\n\nHi\n")
+    (app / "README.de.md").write_text("# Demo\n")
+    problems = "\n".join(ha_app.check(tmp_path, "demo"))
+    assert "DOCS.md: section '## Deutsch' is missing" in problems
+    assert "README.de.md: Home Assistant never shows it" in problems
 
 
 def test_sensitive_access_needs_allowance(tmp_path):

@@ -40,7 +40,8 @@ their change is committed by the owner instead (otherwise Dependabot becomes a
 contributor).
 
 Rules the app checks enforce: one app per repository, `apparmor.txt`,
-`README.md`, `DOCS.md`, `CHANGELOG.md`, English option translations, image
+`README.md` and `DOCS.md` each with the sections `## English` and `## Deutsch` (Home
+Assistant shows only these two files – no `README.de.md`/`DOCS.de.md`), `CHANGELOG.md`, English option translations, image
 `ghcr.io/<owner>/{arch}-app-<name>`, version `x.y.z`, and no wide access
 (Home Assistant API, host network, privileged …) unless the repository lists it
 in `allowed-access` and explains why in its security policy.
@@ -79,7 +80,8 @@ GitHub zusammengeführt; ihre Änderung committet der Besitzer selbst (sonst wir
 Dependabot Contributor).
 
 Was die App-Prüfung erzwingt: eine App pro Repository, `apparmor.txt`,
-`README.md`, `DOCS.md`, `CHANGELOG.md`, englische Options-Übersetzung, Image
+`README.md` und `DOCS.md` jeweils mit den Abschnitten `## English` und `## Deutsch` (Home
+Assistant zeigt nur diese beiden Dateien – keine `README.de.md`/`DOCS.de.md`), `CHANGELOG.md`, englische Options-Übersetzung, Image
 `ghcr.io/<owner>/{arch}-app-<name>`, Version `x.y.z` und kein weitreichender
 Zugriff (Home-Assistant-API, Host-Netzwerk, privilegiert …), außer das
 Repository nennt ihn in `allowed-access` und begründet ihn in seiner
