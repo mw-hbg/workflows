@@ -79,21 +79,11 @@ jobs:
           { echo "name=$login"; echo "email=$id+$login@users.noreply.github.com"; } >> "$GITHUB_OUTPUT"
           echo "Release author: $login"
       - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: mw-hbg/workflows
-          ref: ${{ inputs.shared-ref }}
-          path: .shared
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
-      - name: Read the integration
-        id: info
-        env:
-          DOMAIN: ${{ inputs.domain }}
-        run: |
-          python3 .shared/scripts/ha_integration.py check . "$DOMAIN"
-          python3 .shared/scripts/ha_integration.py info . "$DOMAIN" >> "$GITHUB_OUTPUT"
+      # Lint and tests first - before the shared scripts are checked out into
+      # .shared/ (they must not be linted or tested as part of the project).
       - name: Lint and tests must pass
         run: |
           if [ -f requirements_test.txt ]; then
@@ -104,6 +94,18 @@ jobs:
           ruff check .
           ruff format --check .
           if [ -d tests ]; then pytest -q; fi
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Read the integration
+        id: info
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          python3 .shared/scripts/ha_integration.py check . "$DOMAIN"
+          python3 .shared/scripts/ha_integration.py info . "$DOMAIN" >> "$GITHUB_OUTPUT"
       - name: Check version and changelog
         id: check
         env:
