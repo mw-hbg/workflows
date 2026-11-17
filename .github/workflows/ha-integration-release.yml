@@ -1,0 +1,165 @@
+name: Home Assistant integration – release
+
+# Reusable: publish a new version of a Home Assistant custom integration (HACS).
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         version: { description: "New version, e.g. 1.2.3", required: true, type: string }
+#   permissions: { contents: read }
+#   concurrency: { group: release, cancel-in-progress: false }
+#   jobs:
+#     release:
+#       uses: mw-hbg/workflows/.github/workflows/ha-integration-release.yml@main
+#       with:
+#         domain: my_integration
+#         version: ${{ inputs.version }}
+#       secrets:
+#         release-token: ${{ secrets.RELEASE_TOKEN }}
+#
+# RELEASE_TOKEN: fine-grained personal access token of the repository owner
+# (only this repository, permission "Contents: read and write"). With it the
+# release commit, the tag and the GitHub release are made under the owner's
+# own name – never under a bot.
+#
+# Steps: lint and tests must pass, then the version in manifest.json is set,
+# "## Unreleased" in CHANGELOG.md becomes the version, the tag is pushed and the
+# GitHub release is created – that is what HACS offers as update. Release notes
+# are this version's changelog section.
+on:
+  workflow_call:
+    inputs:
+      domain:
+        description: Integration domain (= folder in custom_components)
+        required: true
+        type: string
+      version:
+        description: New version, e.g. 1.2.3
+        required: true
+        type: string
+      tag-prefix:
+        description: Tag = prefix + version
+        type: string
+        default: v
+      python-version:
+        description: Python version for lint and tests
+        type: string
+        default: "3.13"
+      shared-ref:
+        description: Ref of mw-hbg/workflows to take the scripts from
+        type: string
+        default: main
+    secrets:
+      release-token:
+        description: Personal access token of the owner (Contents read/write)
+        required: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      author-name: ${{ steps.owner.outputs.name }}
+      author-email: ${{ steps.owner.outputs.email }}
+      name: ${{ steps.info.outputs.name }}
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Release under the owner's name
+        id: owner
+        env:
+          GH_TOKEN: ${{ secrets.release-token }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret RELEASE_TOKEN is missing (see the top of ha-integration-release.yml)"; exit 1
+          fi
+          read -r login id < <(gh api user --jq '"\(.login) \(.id)"') || {
+            echo "::error::RELEASE_TOKEN does not work (expired?)"; exit 1; }
+          { echo "name=$login"; echo "email=$id+$login@users.noreply.github.com"; } >> "$GITHUB_OUTPUT"
+          echo "Release author: $login"
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Read the integration
+        id: info
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: |
+          python3 .shared/scripts/ha_integration.py check . "$DOMAIN"
+          python3 .shared/scripts/ha_integration.py info . "$DOMAIN" >> "$GITHUB_OUTPUT"
+      - name: Lint and tests must pass
+        run: |
+          if [ -f requirements_test.txt ]; then
+            pip install -r requirements_test.txt
+          else
+            pip install pytest ruff
+          fi
+          ruff check .
+          ruff format --check .
+          if [ -d tests ]; then pytest -q; fi
+      - name: Check version and changelog
+        id: check
+        env:
+          REQUESTED: ${{ inputs.version }}
+          PREFIX: ${{ inputs.tag-prefix }}
+          CURRENT: ${{ steps.info.outputs.version }}
+        run: |
+          version="${REQUESTED#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.2.3"; exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$CURRENT" "$version" | sort -V | tail -1)" != "$version" ] || [ "$CURRENT" = "$version" ]; then
+            echo "::error::$version is not higher than the current version $CURRENT"; exit 1
+          fi
+          tag="$PREFIX$version"
+          if git ls-remote --exit-code --tags origin "$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists"; exit 1
+          fi
+          if ! grep -q '^## Unreleased' CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## Unreleased' section"; exit 1
+          fi
+          { echo "version=$version"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.release-token }}
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Set version, finish changelog, tag and release
+        env:
+          GH_TOKEN: ${{ secrets.release-token }}
+          AUTHOR_NAME: ${{ needs.prepare.outputs.author-name }}
+          AUTHOR_EMAIL: ${{ needs.prepare.outputs.author-email }}
+          DOMAIN: ${{ inputs.domain }}
+          NAME: ${{ needs.prepare.outputs.name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          python3 .shared/scripts/ha_integration.py set-version . "$DOMAIN" "$VERSION"
+          rm -rf .shared
+          sed -i "0,/^## Unreleased/s//## $VERSION/" CHANGELOG.md
+          # Release notes = this version's changelog section
+          awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          git config user.name "$AUTHOR_NAME"
+          git config user.email "$AUTHOR_EMAIL"
+          git add "custom_components/$DOMAIN/manifest.json" CHANGELOG.md
+          git commit -m "Release $NAME $VERSION"
+          git tag "$TAG"
+          git push origin HEAD "$TAG"
+          gh release create "$TAG" --title "$NAME $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

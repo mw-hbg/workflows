@@ -1,0 +1,96 @@
+name: Home Assistant integration – test
+
+# Reusable: checks for a Home Assistant custom integration (HACS).
+#
+#   on:
+#     pull_request:
+#     push: { branches: [main] }
+#     workflow_dispatch:
+#   permissions: { contents: read }
+#   jobs:
+#     integration:
+#       uses: mw-hbg/workflows/.github/workflows/ha-integration-test.yml@main
+#       with:
+#         domain: my_integration
+#
+# Jobs: repository checks (scripts/ha_integration.py), hassfest (Home
+# Assistant's own manifest/translation check), the HACS validation, ruff
+# (lint + format) and the unit tests (pytest). Test dependencies come from
+# requirements_test.txt in the repository.
+on:
+  workflow_call:
+    inputs:
+      domain:
+        description: Integration domain (= folder in custom_components)
+        required: true
+        type: string
+      python-version:
+        description: Python version for lint and tests
+        type: string
+        default: "3.13"
+      hacs:
+        description: Run the HACS validation
+        type: boolean
+        default: true
+      shared-ref:
+        description: Ref of mw-hbg/workflows to take the scripts from
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Check the repository
+        env:
+          DOMAIN: ${{ inputs.domain }}
+        run: python3 .shared/scripts/ha_integration.py check . "$DOMAIN"
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    if: ${{ inputs.hacs }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install test dependencies
+        run: |
+          if [ -f requirements_test.txt ]; then
+            pip install -r requirements_test.txt
+          else
+            pip install pytest ruff
+          fi
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Unit tests
+        run: |
+          if [ -d tests ]; then
+            pytest -q
+          else
+            echo "::warning::no unit tests"
+          fi

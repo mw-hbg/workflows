@@ -113,3 +113,60 @@ def test_upstream_rejects_odd_repo(tmp_path):
     )
     with pytest.raises(SystemExit):
         upstream.read(tmp_path / "upstream.yaml")
+
+
+# --- ha_integration.py ------------------------------------------------------
+import ha_integration  # noqa: E402
+
+MANIFEST = {
+    "domain": "demo",
+    "name": "Demo",
+    "codeowners": ["@mw-hbg"],
+    "documentation": "https://example.org",
+    "issue_tracker": "https://example.org/issues",
+    "version": "0.1.0",
+}
+
+
+def make_integration(root: Path, manifest: dict = MANIFEST) -> Path:
+    for name in ha_integration.REQUIRED_ROOT_FILES:
+        (root / name).write_text("## Unreleased\n" if name == "CHANGELOG.md" else "x")
+    (root / "hacs.json").write_text('{"name": "Demo"}')
+    folder = root / "custom_components" / "demo"
+    for name in ha_integration.REQUIRED_FILES:
+        (folder / name).parent.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text("x")
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+    return folder
+
+
+def test_valid_integration(tmp_path):
+    make_integration(tmp_path)
+    assert ha_integration.check(tmp_path, "demo") == []
+    assert ha_integration.info(tmp_path, "demo") == {"name": "Demo", "version": "0.1.0"}
+
+
+def test_integration_problems(tmp_path):
+    folder = make_integration(tmp_path, {**MANIFEST, "domain": "other", "version": "1.0"})
+    (folder / "brand" / "icon.png").unlink()
+    (tmp_path / "SECURITY.md").unlink()
+    second = tmp_path / "custom_components" / "second"
+    second.mkdir()
+    (second / "manifest.json").write_text("{}")
+    problems = "\n".join(ha_integration.check(tmp_path, "demo"))
+    for expected in ("one integration per repository", "brand/icon.png", "SECURITY.md", "domain must", "1.2.3"):
+        assert expected in problems
+
+
+def test_integration_missing(tmp_path):
+    assert "not found" in ha_integration.check(tmp_path, "demo")[0]
+
+
+def test_set_version_keeps_order(tmp_path):
+    folder = make_integration(tmp_path)
+    ha_integration.set_version(tmp_path, "demo", "0.2.0")
+    data = json.loads((folder / "manifest.json").read_text())
+    assert data["version"] == "0.2.0"
+    assert list(data)[:2] == ["domain", "name"]
+    with pytest.raises(ValueError):
+        ha_integration.set_version(tmp_path, "demo", "v1")
