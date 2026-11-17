@@ -1,0 +1,55 @@
+name: Republish bot releases under the owner's name
+
+# Reusable, run once by hand: every GitHub release that was created by a bot
+# (e.g. github-actions[bot]) is deleted and created again with the owner's
+# token – same tag, title and text, so it shows the owner as author. Tags and
+# commits are not touched. The release date becomes the day of the run.
+#
+#   on: workflow_dispatch
+#   permissions: { contents: read }
+#   jobs:
+#     republish:
+#       uses: mw-hbg/workflows/.github/workflows/releases-as-owner.yml@main
+#       secrets:
+#         release-token: ${{ secrets.RELEASE_TOKEN }}
+on:
+  workflow_call:
+    secrets:
+      release-token:
+        description: Personal access token of the owner (Contents read/write)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recreate bot releases
+        env:
+          GH_TOKEN: ${{ secrets.release-token }}
+          REPO: ${{ github.repository }}
+        run: |
+          owner=$(gh api user --jq .login)
+          latest=$(gh api "repos/$REPO/releases/latest" --jq .tag_name 2>/dev/null || true)
+          # oldest first, so the list keeps its order
+          gh api --paginate "repos/$REPO/releases?per_page=100" \
+            --jq '.[] | select(.author.type == "Bot" and (.draft | not)) | [.created_at, .tag_name] | @tsv' \
+            | sort | cut -f2 > "$RUNNER_TEMP/tags.txt"
+          echo "Releases by a bot: $(wc -l < "$RUNNER_TEMP/tags.txt"), new author: $owner"
+          while read -r tag; do
+            gh api "repos/$REPO/releases/tags/$tag" > "$RUNNER_TEMP/release.json"
+            jq -r '.body // ""' "$RUNNER_TEMP/release.json" > "$RUNNER_TEMP/notes.md"
+            title=$(jq -r '.name // ""' "$RUNNER_TEMP/release.json")
+            prerelease=$(jq -r '.prerelease' "$RUNNER_TEMP/release.json")
+            gh release delete "$tag" --repo "$REPO" --yes
+            args=(--repo "$REPO" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag --latest=false)
+            [ "$prerelease" = "true" ] && args+=(--prerelease)
+            gh release create "$tag" "${args[@]}"
+            echo "Recreated $tag"
+          done < "$RUNNER_TEMP/tags.txt"
+          if [ -n "$latest" ]; then
+            gh release edit "$latest" --repo "$REPO" --latest
+            echo "Latest release: $latest"
+          fi

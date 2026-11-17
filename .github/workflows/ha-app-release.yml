@@ -14,6 +14,13 @@ name: Home Assistant app – release
 #       with:
 #         app: my_app
 #         version: ${{ inputs.version }}
+#       secrets:
+#         release-token: ${{ secrets.RELEASE_TOKEN }}
+#
+# RELEASE_TOKEN: fine-grained personal access token of the repository owner
+# (only this repository, permission "Contents: read and write"). With it the
+# release commit, the tag and the GitHub release are made under the owner's
+# own name – never under a bot. The images are pushed with GITHUB_TOKEN.
 #
 # Order matters: the images are built and pushed FIRST. Only then is the
 # version in <app>/config.yaml raised – that is the moment Home Assistant
@@ -42,6 +49,10 @@ on:
         description: Ref of mw-hbg/workflows to take the scripts from
         type: string
         default: main
+    secrets:
+      release-token:
+        description: Personal access token of the owner (Contents read/write)
+        required: true
 
 jobs:
   prepare:
@@ -49,12 +60,26 @@ jobs:
     permissions:
       contents: read
     outputs:
+      author-name: ${{ steps.owner.outputs.name }}
+      author-email: ${{ steps.owner.outputs.email }}
       name: ${{ steps.info.outputs.name }}
       version: ${{ steps.check.outputs.version }}
       tag: ${{ steps.check.outputs.tag }}
       image: ${{ steps.info.outputs.image }}
       builds: ${{ steps.info.outputs.builds }}
     steps:
+      - name: Release under the owner's name
+        id: owner
+        env:
+          GH_TOKEN: ${{ secrets.release-token }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Secret RELEASE_TOKEN is missing (see the top of ha-app-release.yml)"; exit 1
+          fi
+          read -r login id < <(gh api user --jq '"\(.login) \(.id)"') || {
+            echo "::error::RELEASE_TOKEN does not work (expired?)"; exit 1; }
+          { echo "name=$login"; echo "email=$id+$login@users.noreply.github.com"; } >> "$GITHUB_OUTPUT"
+          echo "Release author: $login"
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
         with:
@@ -150,9 +175,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.release-token }}
       - name: Set version, finish changelog, tag and release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.release-token }}
+          AUTHOR_NAME: ${{ needs.prepare.outputs.author-name }}
+          AUTHOR_EMAIL: ${{ needs.prepare.outputs.author-email }}
           APP: ${{ inputs.app }}
           NAME: ${{ needs.prepare.outputs.name }}
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -162,8 +191,8 @@ jobs:
           sed -i "0,/^## Unreleased/s//## $VERSION/" "$APP/CHANGELOG.md"
           # Release notes = this version's changelog section
           awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{if(f)exit} f' "$APP/CHANGELOG.md" > "$RUNNER_TEMP/notes.md"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$AUTHOR_NAME"
+          git config user.email "$AUTHOR_EMAIL"
           git add "$APP/config.yaml" "$APP/CHANGELOG.md"
           git commit -m "Release $NAME $VERSION"
           git tag "$TAG"
