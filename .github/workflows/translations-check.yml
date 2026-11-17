@@ -38,8 +38,9 @@ jobs:
           path: .shared
       - name: Compare the languages
         env:
-          GROUPS: ${{ inputs.groups }}
+          # not GROUPS – that is a bash built-in (the user's group ids)
+          TRANSLATION_GROUPS: ${{ inputs.groups }}
         run: |
           pip install --quiet pyyaml
-          mapfile -t groups <<< "$GROUPS"
+          mapfile -t groups <<< "$TRANSLATION_GROUPS"
           python3 .shared/scripts/check_translations.py "${groups[@]}"

@@ -53,6 +53,7 @@ jobs:
           [ "$PINNED" = "$latest" ] && exit 0
           ahead=$(gh api "repos/$REPO/compare/${PINNED}...${latest}" --jq .ahead_by)
           title="$NAME update available"
+          # shellcheck disable=SC2016 # the backticks are Markdown, not command substitution
           body=$(printf '**%s** has **%s** new commit(s) since the version pinned in `%s`.\n\n- pinned: `%s`\n- latest: `%s`\n- changes: https://github.com/%s/compare/%s...%s\n\nTo update: set the pinned commit in `%s` to the latest one, check that the tests pass, add a changelog entry and run the Release workflow.' \
             "$NAME" "$ahead" "$PIN_FILE" "$PINNED" "$latest" "$REPO" "$PINNED" "$latest" "$PIN_FILE")
           existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
