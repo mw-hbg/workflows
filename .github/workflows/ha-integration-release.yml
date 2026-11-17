@@ -1,6 +1,6 @@
 name: Home Assistant integration – release
 
-# Reusable: publish a new version of a Home Assistant custom integration (HACS).
+# Reusable: publish a new version of a Home Assistant custom integration (Marketplace).
 #
 #   on:
 #     workflow_dispatch:
@@ -24,7 +24,7 @@ name: Home Assistant integration – release
 #
 # Steps: lint and tests must pass, then the version in manifest.json is set,
 # "## Unreleased" in CHANGELOG.md becomes the version, the tag is pushed and the
-# GitHub release is created – that is what HACS offers as update. Release notes
+# GitHub release is created – that is what the Marketplace offers as update. Release notes
 # are this version's changelog section.
 on:
   workflow_call:

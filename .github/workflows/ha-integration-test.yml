@@ -1,6 +1,7 @@
 name: Home Assistant integration – test
 
-# Reusable: checks for a Home Assistant custom integration (HACS).
+# Reusable: checks for a Home Assistant custom integration (installed through
+# the Home Assistant Marketplace).
 #
 #   on:
 #     pull_request:
@@ -14,7 +15,8 @@ name: Home Assistant integration – test
 #         domain: my_integration
 #
 # Jobs: repository checks (scripts/ha_integration.py), hassfest (Home
-# Assistant's own manifest/translation check), the HACS validation, ruff
+# Assistant's own manifest/translation check), the Marketplace validation
+# (hacs/action – the Marketplace still uses hacs.json and that check), ruff
 # (lint + format) and the unit tests (pytest). Test dependencies come from
 # requirements_test.txt in the repository.
 on:
@@ -28,8 +30,8 @@ on:
         description: Python version for lint and tests
         type: string
         default: "3.13"
-      hacs:
-        description: Run the HACS validation
+      marketplace:
+        description: Run the Marketplace validation
         type: boolean
         default: true
       shared-ref:
@@ -61,8 +63,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: home-assistant/actions/hassfest@master
 
-  hacs:
-    if: ${{ inputs.hacs }}
+  marketplace:
+    if: ${{ inputs.marketplace }}
     runs-on: ubuntu-latest
     steps:
       - uses: hacs/action@main

@@ -1,7 +1,7 @@
-"""Information about a Home Assistant custom integration repository (HACS), for the shared workflows.
+"""Information about a Home Assistant custom integration repository (Marketplace), for the shared workflows.
 
-A repository holds exactly one integration in custom_components/<domain>/ (HACS
-allows only one per repository).
+A repository holds exactly one integration in custom_components/<domain>/ (the
+Marketplace allows only one per repository).
 
   python ha_integration.py check       <repo-root> <domain>   consistency checks (fails on problems)
   python ha_integration.py info        <repo-root> <domain>   GitHub outputs: name, version
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Files every integration repository must have (relative to the repository root).
-# README.md holds English and German together: HACS only shows README.md.
+# README.md holds English and German together: the Marketplace only shows README.md.
 REQUIRED_ROOT_FILES = ("README.md", "CHANGELOG.md", "LICENSE", "SECURITY.md", "hacs.json")
 # Files inside custom_components/<domain>/
 REQUIRED_FILES = ("__init__.py", "manifest.json", "strings.json", "translations/en.json", "brand/icon.png")
