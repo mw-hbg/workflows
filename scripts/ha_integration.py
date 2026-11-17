@@ -15,8 +15,9 @@ import re
 import sys
 from pathlib import Path
 
-# Files every integration repository must have (relative to the repository root)
-REQUIRED_ROOT_FILES = ("README.md", "README.de.md", "CHANGELOG.md", "LICENSE", "SECURITY.md", "hacs.json")
+# Files every integration repository must have (relative to the repository root).
+# README.md holds English and German together: HACS only shows README.md.
+REQUIRED_ROOT_FILES = ("README.md", "CHANGELOG.md", "LICENSE", "SECURITY.md", "hacs.json")
 # Files inside custom_components/<domain>/
 REQUIRED_FILES = ("__init__.py", "manifest.json", "strings.json", "translations/en.json", "brand/icon.png")
 VERSION = re.compile(r"\d+\.\d+\.\d+")
@@ -62,6 +63,12 @@ def check(root: Path, domain: str) -> list[str]:
         hacs = json.loads((root / "hacs.json").read_text(encoding="utf-8"))
         if not hacs.get("name"):
             problems.append("hacs.json: 'name' is missing")
+    readme = root / "README.md"
+    if readme.is_file():
+        text = readme.read_text(encoding="utf-8")
+        for heading in ("## English", "## Deutsch"):
+            if not re.search(rf"^{heading}\s*$", text, re.M):
+                problems.append(f"README.md: section '{heading}' is missing (one README with both languages)")
     if (root / "CHANGELOG.md").is_file() and not re.search(
         r"^## ", (root / "CHANGELOG.md").read_text(encoding="utf-8"), re.M
     ):

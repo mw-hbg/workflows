@@ -130,7 +130,8 @@ MANIFEST = {
 
 def make_integration(root: Path, manifest: dict = MANIFEST) -> Path:
     for name in ha_integration.REQUIRED_ROOT_FILES:
-        (root / name).write_text("## Unreleased\n" if name == "CHANGELOG.md" else "x")
+        text = {"CHANGELOG.md": "## Unreleased\n", "README.md": "# Demo\n\n## English\n\nx\n\n## Deutsch\n\nx\n"}
+        (root / name).write_text(text.get(name, "x"))
     (root / "hacs.json").write_text('{"name": "Demo"}')
     folder = root / "custom_components" / "demo"
     for name in ha_integration.REQUIRED_FILES:
@@ -150,11 +151,12 @@ def test_integration_problems(tmp_path):
     folder = make_integration(tmp_path, {**MANIFEST, "domain": "other", "version": "1.0"})
     (folder / "brand" / "icon.png").unlink()
     (tmp_path / "SECURITY.md").unlink()
+    (tmp_path / "README.md").write_text("# Demo\n\n## English\n")
     second = tmp_path / "custom_components" / "second"
     second.mkdir()
     (second / "manifest.json").write_text("{}")
     problems = "\n".join(ha_integration.check(tmp_path, "demo"))
-    for expected in ("one integration per repository", "brand/icon.png", "SECURITY.md", "domain must", "1.2.3"):
+    for expected in ("one integration per repository", "brand/icon.png", "SECURITY.md", "domain must", "1.2.3", "## Deutsch"):
         assert expected in problems
 
 

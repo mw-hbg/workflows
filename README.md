@@ -46,7 +46,8 @@ Rules the app checks enforce: one app per repository, `apparmor.txt`,
 in `allowed-access` and explains why in its security policy.
 
 Rules the integration checks enforce: one integration per repository in
-`custom_components/<domain>/`, `README.md`, `README.de.md`, `CHANGELOG.md`,
+`custom_components/<domain>/`, `README.md` with the sections `## English` and
+`## Deutsch` (HACS only shows README.md), `CHANGELOG.md`,
 `LICENSE`, `SECURITY.md`, `hacs.json`, `strings.json` with English
 translation, `brand/icon.png`, domain = folder name, version `x.y.z`.
 
@@ -85,7 +86,8 @@ Repository nennt ihn in `allowed-access` und begründet ihn in seiner
 Sicherheitsrichtlinie.
 
 Was die Integrations-Prüfung erzwingt: eine Integration pro Repository in
-`custom_components/<domain>/`, `README.md`, `README.de.md`, `CHANGELOG.md`,
+`custom_components/<domain>/`, `README.md` mit den Abschnitten `## English` und
+`## Deutsch` (HACS zeigt nur README.md), `CHANGELOG.md`,
 `LICENSE`, `SECURITY.md`, `hacs.json`, `strings.json` mit englischer
 Übersetzung, `brand/icon.png`, Domain = Ordnername, Version `x.y.z`.
 
