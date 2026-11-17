@@ -1,0 +1,127 @@
+name: Home Assistant app – test
+
+# Reusable: lint, unit tests, build for every architecture and smoke test of a
+# Home Assistant app repository (repository.yaml + one app folder).
+#
+#   jobs:
+#     test:
+#       uses: mw-hbg/workflows/.github/workflows/ha-app-test.yml@main
+#       with:
+#         app: my_app
+#
+# Per app, if present:
+#   <app>/tests/setup.sh       installs what the unit tests need
+#   <app>/tests/test_*.py      unit tests (pytest)
+#   <app>/tests/smoke_test.sh  runs against every natively built image
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: App folder (= slug)
+        required: true
+        type: string
+      python-version:
+        description: Python for the unit tests
+        type: string
+        default: "3.12"
+      allowed-access:
+        description: Sensitive config.yaml options this app really needs (space separated, explain in SECURITY.md)
+        type: string
+        default: ""
+      shared-ref:
+        description: Ref of mw-hbg/workflows to take the scripts from
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      builds: ${{ steps.info.outputs.builds }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Check the repository
+        id: info
+        env:
+          APP: ${{ inputs.app }}
+          ALLOWED: ${{ inputs.allowed-access }}
+        run: |
+          pip install --quiet pyyaml
+          python3 .shared/scripts/ha_app.py check . "$APP" "$ALLOWED"
+          python3 .shared/scripts/ha_app.py info . "$APP" >> "$GITHUB_OUTPUT"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint ${{ inputs.app }}
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: ./${{ inputs.app }}
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install test dependencies
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          if [ -f "$APP/tests/setup.sh" ]; then
+            bash "$APP/tests/setup.sh"
+          else
+            pip install pytest
+          fi
+      - name: Run unit tests
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          if ls "$APP"/tests/test_*.py >/dev/null 2>&1; then
+            pytest -q "$APP/tests"
+          else
+            echo "::warning::$APP has no unit tests"
+          fi
+
+  build:
+    needs: [check, lint, unit-tests]
+    # amd64 on x64, aarch64 on GitHub's arm64 runners – no emulation
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.check.outputs.builds) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+        if: ${{ !matrix.native }}
+      - uses: docker/setup-buildx-action@v4
+      - name: Build (${{ matrix.arch }})
+        uses: docker/build-push-action@v7
+        with:
+          context: ./${{ inputs.app }}
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: ${{ matrix.native }}
+          tags: ${{ inputs.app }}-test:${{ matrix.arch }}
+          build-args: |
+            BUILD_VERSION=test
+            BUILD_ARCH=${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ inputs.app }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.app }}-${{ matrix.arch }}
+      - name: Smoke test the image
+        if: matrix.native && hashFiles(format('{0}/tests/smoke_test.sh', inputs.app)) != ''
+        env:
+          APP: ${{ inputs.app }}
+          ARCH: ${{ matrix.arch }}
+        run: bash "$APP/tests/smoke_test.sh" "$APP-test:$ARCH"

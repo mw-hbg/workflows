@@ -1,0 +1,45 @@
+name: Translations check
+
+# Reusable: every language has exactly the same texts and placeholders as
+# English. One line of "groups" = one set of files that belong together
+# (glob patterns separated by spaces). See scripts/check_translations.py.
+#
+#   jobs:
+#     translations:
+#       uses: mw-hbg/workflows/.github/workflows/translations-check.yml@main
+#       with:
+#         groups: |
+#           my_app/translations/*.yaml
+#           custom_components/x/strings.json custom_components/x/translations/*.json
+on:
+  workflow_call:
+    inputs:
+      groups:
+        description: One group of glob patterns per line
+        required: true
+        type: string
+      shared-ref:
+        description: Ref of mw-hbg/workflows to take the scripts from
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Compare the languages
+        env:
+          GROUPS: ${{ inputs.groups }}
+        run: |
+          pip install --quiet pyyaml
+          mapfile -t groups <<< "$GROUPS"
+          python3 .shared/scripts/check_translations.py "${groups[@]}"

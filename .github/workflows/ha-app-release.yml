@@ -1,0 +1,171 @@
+name: Home Assistant app – release
+
+# Reusable: publish a new version of a Home Assistant app.
+#
+#   on:
+#     workflow_dispatch:
+#       inputs:
+#         version: { description: "New version, e.g. 1.2.3", required: true, type: string }
+#   permissions: { contents: write, packages: write }
+#   concurrency: { group: release, cancel-in-progress: false }
+#   jobs:
+#     release:
+#       uses: mw-hbg/workflows/.github/workflows/ha-app-release.yml@main
+#       with:
+#         app: my_app
+#         version: ${{ inputs.version }}
+#
+# Order matters: the images are built and pushed FIRST. Only then is the
+# version in <app>/config.yaml raised – that is the moment Home Assistant
+# offers the update, so an update can never point to an image that doesn't
+# exist yet. Release notes are the "## Unreleased" section of CHANGELOG.md.
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: App folder (= slug)
+        required: true
+        type: string
+      version:
+        description: New version, e.g. 1.2.3
+        required: true
+        type: string
+      tag-prefix:
+        description: Tag = prefix + version
+        type: string
+        default: v
+      allowed-access:
+        description: Same as in ha-app-test.yml
+        type: string
+        default: ""
+      shared-ref:
+        description: Ref of mw-hbg/workflows to take the scripts from
+        type: string
+        default: main
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      name: ${{ steps.info.outputs.name }}
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+      image: ${{ steps.info.outputs.image }}
+      builds: ${{ steps.info.outputs.builds }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Read the app
+        id: info
+        env:
+          APP: ${{ inputs.app }}
+          ALLOWED: ${{ inputs.allowed-access }}
+        run: |
+          pip install --quiet pyyaml
+          python3 .shared/scripts/ha_app.py check . "$APP" "$ALLOWED"
+          python3 .shared/scripts/ha_app.py info . "$APP" >> "$GITHUB_OUTPUT"
+      - name: Check version and changelog
+        id: check
+        env:
+          APP: ${{ inputs.app }}
+          REQUESTED: ${{ inputs.version }}
+          PREFIX: ${{ inputs.tag-prefix }}
+          CURRENT: ${{ steps.info.outputs.version }}
+          IMAGE: ${{ steps.info.outputs.image }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          version="${REQUESTED#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 1.2.3"; exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$CURRENT" "$version" | sort -V | tail -1)" != "$version" ] || [ "$CURRENT" = "$version" ]; then
+            echo "::error::$version is not higher than the current version $CURRENT"; exit 1
+          fi
+          tag="$PREFIX$version"
+          if git ls-remote --exit-code --tags origin "$tag" >/dev/null; then
+            echo "::error::Tag $tag already exists"; exit 1
+          fi
+          if ! grep -q '^## Unreleased' "$APP/CHANGELOG.md"; then
+            echo "::error::$APP/CHANGELOG.md has no '## Unreleased' section"; exit 1
+          fi
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          case "$IMAGE" in
+            "ghcr.io/$owner/"*) ;;
+            *) echo "::error::image in $APP/config.yaml must start with ghcr.io/$owner/"; exit 1 ;;
+          esac
+          { echo "version=$version"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+    # amd64 on x64, aarch64 on GitHub's arm64 runners – no emulation
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.builds) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+        if: ${{ !matrix.native }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image name for ${{ matrix.arch }}
+        id: image
+        env:
+          IMAGE: ${{ needs.prepare.outputs.image }}
+          ARCH: ${{ matrix.arch }}
+        run: echo "name=${IMAGE//\{arch\}/$ARCH}" >> "$GITHUB_OUTPUT"
+      - name: Build and push (${{ matrix.arch }})
+        uses: docker/build-push-action@v7
+        with:
+          context: ./${{ inputs.app }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            BUILD_VERSION=${{ needs.prepare.outputs.version }}
+            BUILD_ARCH=${{ matrix.arch }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ needs.prepare.outputs.version }}
+            ${{ steps.image.outputs.name }}:latest
+          cache-from: type=gha,scope=${{ inputs.app }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.app }}-${{ matrix.arch }}
+
+  publish:
+    needs: [prepare, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set version, finish changelog, tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP: ${{ inputs.app }}
+          NAME: ${{ needs.prepare.outputs.name }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          sed -i "s/^version: .*/version: \"$VERSION\"/" "$APP/config.yaml"
+          sed -i "0,/^## Unreleased/s//## $VERSION/" "$APP/CHANGELOG.md"
+          # Release notes = this version's changelog section
+          awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{if(f)exit} f' "$APP/CHANGELOG.md" > "$RUNNER_TEMP/notes.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$APP/config.yaml" "$APP/CHANGELOG.md"
+          git commit -m "Release $NAME $VERSION"
+          git tag "$TAG"
+          git push origin HEAD "$TAG"
+          gh release create "$TAG" --title "$NAME $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

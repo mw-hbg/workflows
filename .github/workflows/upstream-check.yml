@@ -1,0 +1,63 @@
+name: Upstream check
+
+# Reusable: is there a newer commit of the upstream project than the one this
+# project is pinned to? If so, open (or update) an issue. Updating stays a
+# deliberate step: bump the pinned commit, let the tests run, add a changelog
+# entry, then release.
+#
+#   on:
+#     schedule: [{ cron: "17 6 * * 1" }]
+#     workflow_dispatch:
+#   permissions: { contents: read, issues: write }
+#   jobs:
+#     upstream:
+#       uses: mw-hbg/workflows/.github/workflows/upstream-check.yml@main
+#       with:
+#         file: my_app/upstream.yaml
+#
+# upstream.yaml format: see scripts/upstream.py.
+on:
+  workflow_call:
+    inputs:
+      file:
+        description: Path of the upstream.yaml
+        required: true
+        type: string
+      shared-ref:
+        description: Ref of mw-hbg/workflows to take the scripts from
+        type: string
+        default: main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: mw-hbg/workflows
+          ref: ${{ inputs.shared-ref }}
+          path: .shared
+      - name: Compare pinned and latest versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILE: ${{ inputs.file }}
+        run: |
+          pip install --quiet pyyaml
+          eval "$(python3 .shared/scripts/upstream.py "$FILE")"
+          latest=$(gh api "repos/$REPO/commits/$BRANCH" --jq .sha)
+          echo "pinned=$PINNED latest=$latest"
+          [ "$PINNED" = "$latest" ] && exit 0
+          ahead=$(gh api "repos/$REPO/compare/${PINNED}...${latest}" --jq .ahead_by)
+          title="$NAME update available"
+          body=$(printf '**%s** has **%s** new commit(s) since the version pinned in `%s`.\n\n- pinned: `%s`\n- latest: `%s`\n- changes: https://github.com/%s/compare/%s...%s\n\nTo update: set the pinned commit in `%s` to the latest one, check that the tests pass, add a changelog entry and run the Release workflow.' \
+            "$NAME" "$ahead" "$PIN_FILE" "$PINNED" "$latest" "$REPO" "$PINNED" "$latest" "$PIN_FILE")
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

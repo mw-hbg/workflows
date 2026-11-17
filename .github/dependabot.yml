@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Versions of the GitHub Actions building blocks used by the shared workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

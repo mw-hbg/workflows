@@ -1,0 +1,28 @@
+name: Self test
+
+# Tests the shared scripts and checks the syntax of all workflows here.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Unit tests of the scripts
+        run: |
+          pip install --quiet pyyaml pytest
+          pytest -q tests
+      - name: Check the workflows (actionlint)
+        run: |
+          pip install --quiet actionlint-py
+          actionlint -color
